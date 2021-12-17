@@ -4,8 +4,8 @@
     vars:
       do_token: INSERT DigitalOcean TOKEN HERE
       droplets:
-        - JAnderson-2112-WordPress1
-        - JAnderson-2112-WordPress2
+        - WordPress1
+        - WordPress2
 
     tasks:
       - name: Ensure SSH Key Exists
