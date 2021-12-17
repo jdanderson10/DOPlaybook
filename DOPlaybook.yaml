@@ -18,10 +18,10 @@
         digital_ocean:
           state: present
           command: ssh
-          name: Jacob-Anderson-2112
+          name: KEYForAnsible
           ssh_pub_key: "{{ lookup('file', '~/.ssh/id_rsa.pub') }}"
           api_token: "{{ do_token }}"
-        register: Jacob_Anderson_2112
+        register: newkey
 
       - name: Creating CentOS 8 Droplets
         digital_ocean_droplet:
@@ -30,7 +30,7 @@
           size_id: s-1vcpu-1gb
           region_id: nyc1
           image_id: centos-8-x64
-          ssh_keys: ["{{ Jacob_Anderson_2112.ssh_key.id }}"]
+          ssh_keys: ["{{ newkey.ssh_key.id }}"]
           API_TOKEN: "{{ do_token }}"
         with_items: "{{ droplets }}"
         register: droplet_details
