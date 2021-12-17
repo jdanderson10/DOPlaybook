@@ -1,0 +1,213 @@
+---
+  - name: Droplet Creation
+    hosts: localhost
+    vars:
+      do_token: INSERT DigitalOcean TOKEN HERE
+      droplets:
+        - JAnderson-2112-WordPress1
+        - JAnderson-2112-WordPress2
+
+    tasks:
+      - name: Ensure SSH Key Exists
+        user:
+          name: "{{ ansible_user_id }}"
+          generate_ssh_key: yes
+          ssh_key_file: .ssh/id_rsa
+
+      - name: Creating DigitalOcean SSH Key
+        digital_ocean:
+          state: present
+          command: ssh
+          name: Jacob-Anderson-2112
+          ssh_pub_key: "{{ lookup('file', '~/.ssh/id_rsa.pub') }}"
+          api_token: "{{ do_token }}"
+        register: Jacob_Anderson_2112
+
+      - name: Creating CentOS 8 Droplets
+        digital_ocean_droplet:
+          state: present
+          name: "{{ item }}"
+          size_id: s-1vcpu-1gb
+          region_id: nyc1
+          image_id: centos-8-x64
+          ssh_keys: ["{{ Jacob_Anderson_2112.ssh_key.id }}"]
+          API_TOKEN: "{{ do_token }}"
+        with_items: "{{ droplets }}"
+        register: droplet_details
+
+      - name: Adding Droplets to hosts file
+        add_host:
+          name: "{{ item.data.ip_address }}"
+          ansible_ssh_extra_args: '-o StrictHostKeyChecking=no'
+          group: droplets
+        with_items: "{{ droplet_details.results }}"
+
+
+  - name: Wait for Droplets
+    gather_facts: no
+    hosts: droplets
+    tasks:
+      - name: Waiting for SSH Connection
+        wait_for_connection:
+
+  - name: Adding Remi Repository
+    hosts: droplets
+    roles:
+      - geerlingguy.repo-remi
+
+  - name: LAMP + Wordpress Install
+    gather_facts: no
+    hosts: droplets
+    vars:
+      php_modules:
+        - php
+        - php-mysqlnd
+        - php-dom
+        - php-filter
+        - php-bcmath
+        - php-zlib
+        - php-simplexml
+        - php-pcre
+        - php-openssl
+        - php-zip
+        - php-xml
+        - php-xmlrpc
+        - php-hash
+        - php-fileinfo
+        - php-xmlreader
+        - php-soap
+        - php-curl
+        - php-intl
+        - php-exif
+        - php-ftp
+        - php-gd
+        - php-iconv
+        - php-json
+        - php-mbstring
+        - php-posix
+        - php-sockets
+        - php-tokenizer
+      mysql_db: "wpdb"
+      mysql_user: "wpuser"
+      mysql_password: "password"
+
+    tasks:
+
+      - name:  Install epel-release
+        yum:
+          name: epel-release
+          state: latest
+
+      - name: Update all packages
+        yum:
+          name: '*'
+          state: latest
+
+      - name: Disabling SELinux
+        selinux:
+          state: disabled
+
+      - name: Install firewalld
+        yum:
+          name: firewalld
+          state: latest
+
+      - name: Configure firewalld (HTTP)
+        firewalld:
+          zone: public
+          service: http
+          permanent: yes
+          state: enabled
+
+      - name: Configure firewalld (SSH)
+        firewalld:
+          zone: public
+          service: ssh
+          permanent: yes
+          state: enabled
+
+      - name: Reload firewalld
+        service:
+          name: firewalld
+          state: reloaded
+
+      - name: Install Apache
+        yum:
+          name: httpd
+          state: latest
+
+      - name: Start Apache
+        service:
+          name: httpd
+          state: started
+
+      - name: Enable Apache
+        service:
+          name: httpd
+          enabled: yes
+
+      - name: Install PHP and Extensions
+        yum:
+          name: "{{ item }}"
+          state: latest
+        with_items: "{{ php_modules }}"
+
+      - name: Install MySQL Packages
+        yum:
+          name: ['mysql-server', 'php-mysqlnd', 'python3-PyMySQL']
+          state: latest
+
+      - name: Start and Enable mysqld Service
+        systemd:
+          name: mysqld
+          state: started
+          enabled: yes
+
+      - name: Creates MySQL database for WordPress
+        mysql_db:
+          name: "{{ mysql_db }}"
+          state: present
+
+      - name: Create MySQL user for WordPress
+        mysql_user:
+          name: "{{ mysql_user }}"
+          password: "{{ mysql_password }}"
+          priv: "{{ mysql_db }}.*:ALL"
+          state: present
+
+      - name: Download and unpack latest WordPress
+        unarchive:
+          src: https://wordpress.org/latest.tar.gz
+          dest: "/var/www/html"
+          remote_src: yes
+          creates: "/var/www/html/wordpress"
+
+      - name: Set Ownership for Apache
+        file:
+          path: "/var/www/html"
+          state: directory
+          recurse: yes
+          owner: apache
+          group: apache
+
+      - name: Set permissions for directories
+        shell: "/usr/bin/find /var/www/html/wordpress/ -type d -exec chmod 750 {} \\;"
+
+      - name: Set permissions for files
+        shell: "/usr/bin/find /var/www/html/wordpress/ -type f -exec chmod 640 {} \\;"
+
+      - name: Copy sample config file
+        command: mv /var/www/html/wordpress/wp-config-sample.php /var/www/html/wordpress/wp-config.php creates=/var/www/html/wordpress/wp-config.php
+
+      - name: Update wp-config.php file (adding database)
+        lineinfile:
+          path: "/var/www/html/wordpress/wp-config.php"
+          regexp: "{{item.regexp}}"
+          line: "{{item.line}}"
+        with_items:
+          - {'regexp': "define\\( 'DB_NAME', '(.)+' \\);", 'line': "define( 'DB_NAME', '{{mysql_db}}' );"}
+          - {'regexp': "define\\( 'DB_USER', '(.)+' \\);", 'line': "define( 'DB_USER', '{{mysql_user}}' );"}
+          - {'regexp': "define\\( 'DB_PASSWORD', '(.)+' \\);", 'line': "define( 'DB_PASSWORD', '{{mysql_password}}' );"}
+
+      - name: Reboot Droplets
+        reboot:
