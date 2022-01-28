@@ -4,8 +4,8 @@
     vars:
       do_token: INSERT DigitalOcean TOKEN HERE
       droplets:
-        - WordPress1
-        - WordPress2
+        - STIG1
+        - STIG2
 
     tasks:
       - name: Ensure SSH Key Exists
@@ -18,10 +18,10 @@
         digital_ocean:
           state: present
           command: ssh
-          name: KEYForAnsible
+          name: JacobAnderson2201
           ssh_pub_key: "{{ lookup('file', '~/.ssh/id_rsa.pub') }}"
           api_token: "{{ do_token }}"
-        register: newkey
+        register: Jacob_Anderson_2201
 
       - name: Creating CentOS 8 Droplets
         digital_ocean_droplet:
@@ -29,8 +29,8 @@
           name: "{{ item }}"
           size_id: s-1vcpu-1gb
           region_id: nyc1
-          image_id: centos-8-x64
-          ssh_keys: ["{{ newkey.ssh_key.id }}"]
+          image_id: centos-stream-8-x64
+          ssh_keys: ["{{ Jacob_Anderson_2201.ssh_key.id }}"]
           API_TOKEN: "{{ do_token }}"
         with_items: "{{ droplets }}"
         register: droplet_details
@@ -38,6 +38,7 @@
       - name: Adding Droplets to hosts file
         add_host:
           name: "{{ item.data.ip_address }}"
+          ansible_user: root
           ansible_ssh_extra_args: '-o StrictHostKeyChecking=no'
           group: droplets
         with_items: "{{ droplet_details.results }}"
@@ -49,165 +50,189 @@
     tasks:
       - name: Waiting for SSH Connection
         wait_for_connection:
+          delay: 10
+          timeout: 50
 
-  - name: Adding Remi Repository
+  - name: DISA STIGS Implementation
     hosts: droplets
-    roles:
-      - geerlingguy.repo-remi
-
-  - name: LAMP + Wordpress Install
-    gather_facts: no
-    hosts: droplets
-    vars:
-      php_modules:
-        - php
-        - php-mysqlnd
-        - php-dom
-        - php-filter
-        - php-bcmath
-        - php-zlib
-        - php-simplexml
-        - php-pcre
-        - php-openssl
-        - php-zip
-        - php-xml
-        - php-xmlrpc
-        - php-hash
-        - php-fileinfo
-        - php-xmlreader
-        - php-soap
-        - php-curl
-        - php-intl
-        - php-exif
-        - php-ftp
-        - php-gd
-        - php-iconv
-        - php-json
-        - php-mbstring
-        - php-posix
-        - php-sockets
-        - php-tokenizer
-      mysql_db: "wpdb"
-      mysql_user: "wpuser"
-      mysql_password: "password"
-
     tasks:
 
-      - name:  Install epel-release
-        yum:
-          name: epel-release
-          state: latest
+      - name: "HIGH | RHEL-08-040360 | PATCH | A File Transfer Protocol (FTP) server package must not be installed unless mission essential on RHEL 8."
+        package:
+            name: vsftpd
+            state: absent
 
-      - name: Update all packages
-        yum:
-          name: '*'
-          state: latest
+      - name: "HIGH | RHEL-08-040190 | PATCH | The Trivial File Transfer Protocol (TFTP) server package must not be installed if not required for RHEL 8 operational support."
+        package:
+            name: tftp-server
+            state: absent
 
-      - name: Disabling SELinux
-        selinux:
-          state: disabled
+      - name: "HIGH | RHEL-08-010370 | PATCH | RHEL 8 must prevent the installation of software, patches, service packs, device drivers, or operating system components from a repository without verification they have been digitally signed using a certificate that is issued by a Certificate Authority (CA) that is recognized and approved by the organization."
+        block:
+            - name: "HIGH | RHEL-08-010370 | AUDIT | RHEL 8 must prevent the installation of software, patches, service packs, device drivers, or operating system components from a repository without verification they have been digitally signed using a certificate that is issued by a Certificate Authority (CA) that is recognized and approved by the organization. | Dnf Default"
+              lineinfile:
+                  path: /etc/dnf/dnf.conf
+                  regexp: '^gpgcheck='
+                  line: gpgcheck=1
 
-      - name: Install firewalld
-        yum:
-          name: firewalld
-          state: latest
+            - name: "HIGH | RHEL-08-010370 | AUDIT | RHEL 8 must prevent the installation of software, patches, service packs, device drivers, or operating system components from a repository without verification they have been digitally signed using a certificate that is issued by a Certificate Authority (CA) that is recognized and approved by the organization. | Gather Repos"
+              find:
+                  paths: /etc/yum.repos.d
+                  pattern: '*.repo'
+              register: rhel_08_010370_repos_files_list_full
 
-      - name: Configure firewalld (HTTP)
-        firewalld:
-          zone: public
-          service: http
-          permanent: yes
-          state: enabled
+            - name: "HIGH | RHEL-08-010370 | AUDIT | RHEL 8 must prevent the installation of software, patches, service packs, device drivers, or operating system components from a repository without verification they have been digitally signed using a certificate that is issued by a Certificate Authority (CA) that is recognized and approved by the organization. | Flatten result"
+              set_fact:
+                  rhel_08_010370_repos_files_list: "{{ rhel_08_010370_repos_files_list_full.files | map(attribute='path') | flatten }}"
 
-      - name: Configure firewalld (SSH)
-        firewalld:
-          zone: public
-          service: ssh
-          permanent: yes
-          state: enabled
+            - name: "HIGH | RHEL-08-010370 | PATCH | RHEL 8 must prevent the installation of software, patches, service packs, device drivers, or operating system components from a repository without verification they have been digitally signed using a certificate that is issued by a Certificate Authority (CA) that is recognized and approved by the organization. | Set gpgcheck"
+              lineinfile:
+                  path: "{{ item }}"
+                  regexp: '^gpgcheck'
+                  line: gpgcheck=1
+              with_items:
+                  - "{{ rhel_08_010370_repos_files_list }}"
 
-      - name: Reload firewalld
-        service:
-          name: firewalld
-          state: reloaded
+      - name: "HIGH | RHEL-08-040010 | PATCH | RHEL 8 must not have the rsh-server package installed."
+        package:
+            name: rsh-server
+            state: absent
 
-      - name: Install Apache
-        yum:
-          name: httpd
-          state: latest
+      - name: "HIGH | RHEL-08-040000 | PATCH | RHEL 8 must not have the telnet-server package installed."
+        package:
+            name: telnet-server
+            state: absent
 
-      - name: Start Apache
-        service:
-          name: httpd
-          state: started
-
-      - name: Enable Apache
-        service:
-          name: httpd
-          enabled: yes
-
-      - name: Install PHP and Extensions
-        yum:
-          name: "{{ item }}"
-          state: latest
-        with_items: "{{ php_modules }}"
-
-      - name: Install MySQL Packages
-        yum:
-          name: ['mysql-server', 'php-mysqlnd', 'python3-PyMySQL']
-          state: latest
-
-      - name: Start and Enable mysqld Service
-        systemd:
-          name: mysqld
-          state: started
-          enabled: yes
-
-      - name: Creates MySQL database for WordPress
-        mysql_db:
-          name: "{{ mysql_db }}"
-          state: present
-
-      - name: Create MySQL user for WordPress
-        mysql_user:
-          name: "{{ mysql_user }}"
-          password: "{{ mysql_password }}"
-          priv: "{{ mysql_db }}.*:ALL"
-          state: present
-
-      - name: Download and unpack latest WordPress
-        unarchive:
-          src: https://wordpress.org/latest.tar.gz
-          dest: "/var/www/html"
-          remote_src: yes
-          creates: "/var/www/html/wordpress"
-
-      - name: Set Ownership for Apache
-        file:
-          path: "/var/www/html"
-          state: directory
-          recurse: yes
-          owner: apache
-          group: apache
-
-      - name: Set permissions for directories
-        shell: "/usr/bin/find /var/www/html/wordpress/ -type d -exec chmod 750 {} \\;"
-
-      - name: Set permissions for files
-        shell: "/usr/bin/find /var/www/html/wordpress/ -type f -exec chmod 640 {} \\;"
-
-      - name: Copy sample config file
-        command: mv /var/www/html/wordpress/wp-config-sample.php /var/www/html/wordpress/wp-config.php creates=/var/www/html/wordpress/wp-config.php
-
-      - name: Update wp-config.php file (adding database)
+      - name: "HIGH | RHEL-08-020330 | PATCH | RHEL 8 must not have accounts configured with blank or null passwords."
         lineinfile:
-          path: "/var/www/html/wordpress/wp-config.php"
-          regexp: "{{item.regexp}}"
-          line: "{{item.line}}"
-        with_items:
-          - {'regexp': "define\\( 'DB_NAME', '(.)+' \\);", 'line': "define( 'DB_NAME', '{{mysql_db}}' );"}
-          - {'regexp': "define\\( 'DB_USER', '(.)+' \\);", 'line': "define( 'DB_USER', '{{mysql_user}}' );"}
-          - {'regexp': "define\\( 'DB_PASSWORD', '(.)+' \\);", 'line': "define( 'DB_PASSWORD', '{{mysql_password}}' );"}
+            path: /etc/ssh/sshd_config
+            regexp: '(?i)^#?PermitEmptyPasswords'
+            line: 'PermitEmptyPasswords no'
 
-      - name: Reboot Droplets
-        reboot:
+      - name: "HIGH | RHEL-08-020331 | PATCH | RHEL 8 must not allow blank or null passwords in the system-auth file."
+        replace:
+            path: /etc/pam.d/system-auth
+            regexp: ' nullok'
+            replace: ''
+
+      - name: "HIGH | RHEL-08-020332 | PATCH | RHEL 8 must not allow blank or null passwords in the password-auth file."
+        replace:
+            path: /etc/pam.d/password-auth
+            regexp: ' nullok'
+            replace: ''
+
+      - name: "HIGH | RHEL-08-010460 | PATCH | There must be no shosts.equiv files on the RHEL 8 operating system."
+        file:
+          path: /etc/ssh/shosts.equiv
+          state: absent
+
+      - name: "HIGH | RHEL-08-010470 | PATCH | There must be no .shosts files on the RHEL 8 operating system."
+        block:
+            - name: "HIGH | RHEL-08-010470 | PATCH | There must be no .shosts files on the RHEL 8 operating system. | Find .shosts files"
+              find:
+                  path: '/'
+                  recurse: yes
+                  patterns: '*.shosts'
+              register: rhel_08_010470_shost_files
+
+            - name: "HIGH | RHEL-08-010470 | PATCH | There must be no .shosts files on the RHEL 8 operating system. | Remove .shosts files"
+              file:
+                  path: "{{ item.path }}"
+                  state: absent
+              with_items:
+                  - "{{ rhel_08_010470_shost_files.files }}"
+
+# cat 2
+
+
+      - name: "MEDIUM | RHEL-08-010010 | PATCH | RHEL 8 vendor packaged system security patches and updates must be installed and up to date."
+        package:
+          name: "*"
+          state: latest
+
+      - name: "MEDIUM | RHEL-08-010070 | PATCH | All RHEL 8 remote access methods must be monitored."
+        lineinfile:
+            path: /etc/rsyslog.conf
+            line: "auth.*;authpriv.*;daemon.* /var/log/secure"
+            create: yes
+            mode: '0644'
+
+      - name: "MEDIUM | RHEL-08-010130 | PATCH | The RHEL 8 password-auth file must be configured to use a sufficient number of hashing rounds."
+        pamd:
+            name: password-auth
+            type: password
+            control: sufficient
+            module_path: pam_unix.so
+            module_arguments: "rounds=5000"
+            state: args_present
+
+      - name: "MEDIUM | RHEL-08-010131 | PATCH | The RHEL 8 system-auth file must be configured to use a sufficient number of hashing rounds."
+        pamd:
+            name: system-auth
+            type: password
+            control: sufficient
+            module_path: pam_unix.so
+            module_arguments: "rounds=5000"
+            state: args_present
+
+      - name: "MEDIUM | RHEL-08-010151 | PATCH | RHEL 8 operating systems must require authentication upon booting into emergency or rescue modes."
+        lineinfile:
+            path: /usr/lib/systemd/system/rescue.service
+            regexp: '^ExecStart='
+            line: "ExecStart=-/usr/lib/systemd/systemd-sulogin-shell rescue"
+            create: yes
+            owner: root
+            group: root
+            mode: 0644
+
+      - name: "MEDIUM | RHEL-08-010152 | PATCH | RHEL 8 operating systems must require authentication upon booting into emergency mode."
+        lineinfile:
+            path: /usr/lib/systemd/system/emergency.service
+            regexp: '^ExecStart='
+            line: "ExecStart=-/usr/lib/systemd/systemd-sulogin-shell emergency"
+            create: yes
+            owner: root
+            group: root
+            mode: 0644
+
+      - name: "MEDIUM | RHEL-08-010161 | PATCH | RHEL 8 must prevent system daemons from using Kerberos for authentication."
+        block:
+            - name: "MEDIUM | RHEL-08-010161 | AUDIT | RHEL 8 must prevent system daemons from using Kerberos for authentication. | Find .keytab files"
+              find:
+                  path: /
+                  patterns: '*.keytab'
+                  recurse: yes
+              register: rhel8stig_010161_keytab_files
+
+            - name: "MEDIUM | RHEL-08-010161 | PATCH | RHEL 8 must prevent system daemons from using Kerberos for authentication. | Remove .keytab files"
+              file:
+                  path: "{{ item.path }}"
+                  state: absent
+              with_items:
+                  - "{{ rhel8stig_010161_keytab_files.files }}"
+              when: rhel8stig_010161_keytab_files.matched > 0
+
+
+#cat 3
+      - name: "LOW | RHEL-08-010292 | PATCH | RHEL 8 must ensure the SSH server uses strong entropy."
+        lineinfile:
+            path: /etc/sysconfig/sshd
+            regexp: '^SSH_USE_STRONG_RNG=|^.*SSH_USE_STRONG_RNG='
+            line: SSH_USE_STRONG_RNG=32
+
+      - name: "LOW | RHEL-08-020024 | PATCH | RHEL 8 must limit the number of concurrent sessions to ten for all accounts and/or account types."
+        lineinfile:
+            path: /etc/security/limits.conf
+            regexp: '^\*               hard    maxlogins'
+            line: '*                hard    maxlogins       10'
+            insertbefore: '^# End of file'
+            create:  
+            owner: root
+            group: root
+            mode: 0644
+
+      - name: "LOW | RHEL-08-020042 | PATCH | RHEL 8 must prevent users from disabling session control mechanisms."
+        lineinfile:
+            path: /etc/shells
+            regexp: 'tmux'
+            state: absent
